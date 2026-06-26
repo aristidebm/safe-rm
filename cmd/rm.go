@@ -82,9 +82,7 @@ func rmRunE(cmd *cobra.Command, args []string) error {
 	if len(dangerTargets) > 0 {
 		log.Infof("%d targets require TUI confirmation (falling back to deny)", len(dangerTargets))
 		for _, t := range dangerTargets {
-			if verbose {
-				fmt.Fprintf(os.Stderr, "safe-rm: denying %s (danger policy, TUI not yet available)\n", t.Path)
-			}
+			fmt.Fprintf(os.Stderr, "safe-rm: denied %s (matches danger_list)\n", t.Path)
 		}
 	}
 
