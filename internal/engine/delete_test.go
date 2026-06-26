@@ -216,3 +216,17 @@ func TestSoftDeleteWithJSONLEntry(t *testing.T) {
 		t.Fatalf("expected OriginalPath=%q, got %q", srcPath, entries[0].OriginalPath)
 	}
 }
+
+func TestSoftDeleteDisappearedFile(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "ghost.txt")
+
+	trashDir := filepath.Join(dir, "Trash")
+	cfg := &config.Config{}
+	cfg.TrashDir = &trashDir
+
+	err := SoftDelete(srcPath, cfg, false)
+	if err != nil {
+		t.Fatalf("SoftDelete() on non-existent file returned error: %v", err)
+	}
+}
