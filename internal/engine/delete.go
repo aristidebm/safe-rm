@@ -75,6 +75,10 @@ func SoftDelete(path string, cfg *config.Config, freeDesktop bool) error {
 
 	fi, err := os.Stat(abs)
 	if err != nil {
+		if os.IsNotExist(err) {
+			log.Warnf("source disappeared before soft-delete: %s", abs)
+			return nil
+		}
 		return err
 	}
 
