@@ -7,6 +7,7 @@ import (
 
 	"example.com/safe-rm/internal/engine"
 	"example.com/safe-rm/internal/log"
+	"example.com/safe-rm/internal/tui"
 
 	"github.com/spf13/cobra"
 )
@@ -80,9 +81,52 @@ func rmRunE(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(dangerTargets) > 0 {
-		log.Infof("%d targets require TUI confirmation (falling back to deny)", len(dangerTargets))
-		for _, t := range dangerTargets {
-			fmt.Fprintf(os.Stderr, "safe-rm: denied %s (matches danger_list)\n", t.Path)
+		log.Infof("%d targets require TUI confirmation", len(dangerTargets))
+
+		items := make([]tui.ConfirmItem, len(dangerTargets))
+		for i, t := range dangerTargets {
+			fi, err := os.Stat(t.Path)
+			isDir := err == nil && fi.IsDir()
+			items[i] = tui.ConfirmItem{
+				Path:     t.Path,
+				IsDir:    isDir,
+				Policy:   t.Policy,
+				Selected: true,
+			}
+		}
+
+		confirmedItems, confirmed := tui.RunConfirm(items)
+		if !confirmed {
+			log.Infof("TUI confirmation aborted by user")
+			return nil
+		}
+
+		for _, item := range confirmedItems {
+			if !item.Selected {
+				continue
+			}
+
+			var err error
+			switch item.Policy {
+			case engine.PolicyDangerPermanent:
+				err = engine.PermanentDelete(item.Path)
+			default:
+				err = engine.SoftDelete(item.Path, cfg, false)
+			}
+
+			if err != nil {
+				log.Errorf("failed to delete %s: %v", item.Path, err)
+				return err
+			}
+
+			if verbose {
+				switch item.Policy {
+				case engine.PolicyDangerPermanent:
+					fmt.Fprintf(os.Stderr, "safe-rm: permanently deleted %s\n", item.Path)
+				default:
+					fmt.Fprintf(os.Stderr, "safe-rm: trashed %s\n", item.Path)
+				}
+			}
 		}
 	}
 
