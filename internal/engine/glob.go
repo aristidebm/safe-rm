@@ -43,7 +43,20 @@ func MatchesAny(path string, patterns []string) (bool, error) {
 
 func match(path, pattern string) (bool, error) {
 	if !strings.Contains(pattern, "**") {
-		return filepath.Match(pattern, path)
+		matched, err := filepath.Match(pattern, path)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
+		}
+
+		if !strings.Contains(pattern, string(filepath.Separator)) {
+			base := filepath.Base(path)
+			return filepath.Match(pattern, base)
+		}
+
+		return false, nil
 	}
 
 	parts := strings.SplitN(pattern, "**", 2)
