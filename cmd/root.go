@@ -1,22 +1,64 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
+
+	"example.com/safe-rm/internal/config"
+	"example.com/safe-rm/internal/log"
 
 	"github.com/spf13/cobra"
 )
 
+var (
+	cfg         *config.Config
+	debugMode   bool
+	recursive   bool
+	force       bool
+	interactive bool
+	verbose     bool
+	oneFS       bool
+)
+
 var rootCmd = &cobra.Command{
-	Use:   "safe-rm",
+	Use:   "safe-rm [flags] <files...>",
 	Short: "A safe rm wrapper with trash support",
 	Long: `safe-rm is a rm replacement that moves files to trash
 instead of permanently deleting them. It follows the FreeDesktop
 Trash specification and supports glob-based policies.`,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		if err := log.Init(debugMode); err != nil {
+			return fmt.Errorf("log init: %w", err)
+		}
+
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			return fmt.Errorf("config: %w", err)
+		}
+
+		return nil
+	},
+	RunE: rmRunE,
 }
 
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func init() {
+	rootCmd.PersistentFlags().BoolVar(&debugMode, "debug", false, "enable debug logging")
+
+	rootCmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "remove directories recursively")
+	rootCmd.Flags().BoolVarP(&recursive, "recursive", "R", false, "remove directories recursively")
+	rootCmd.Flags().BoolVarP(&force, "force", "f", false, "ignore nonexistent files, never prompt")
+	rootCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "prompt before every removal")
+	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "explain what is being done")
+	rootCmd.Flags().BoolVar(&oneFS, "one-file-system", false, "accepted, silently ignored")
+
+	rootCmd.AddCommand(restoreCmd)
+	rootCmd.AddCommand(listCmd)
+	rootCmd.AddCommand(emptyCmd)
 }
