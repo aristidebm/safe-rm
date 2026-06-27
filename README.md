@@ -30,7 +30,10 @@ Create `~/.config/safe-rm/config.toml` (or set `$SAFE_RM_CONFIG`):
 ```toml
 # Custom trash directory (default: $XDG_DATA_HOME/Trash)
 # When set, .trashinfo files are NOT written (non-FreeDesktop mode)
-# trash_dir = "/path/to/custom/trash"
+trash_dir = "/path/to/custom/trash"
+
+# Default age threshold for `safe-rm prune` (optional)
+max_age = "30d"
 
 # Patterns that bypass the trash entirely (permanent delete)
 bypass_list = [
@@ -47,6 +50,22 @@ danger_list = [
   "Password.kdbx",
   "~/.ssh/*",
 ]
+
+# Theme customization — override any TUI color (optional)
+[theme]
+title_fg = "#e0e0ff"
+danger_fg = "#ff4444"
+warning_fg = "#ffcc00"
+muted_fg = "#666666"
+selected_fg = "#44ff44"
+unselected_fg = "#555555"
+permanent_fg = "#ff4444"
+permanent_bg = "#440000"
+trash_fg = "#44aaff"
+trash_bg = "#002244"
+trash_path_fg = "#666666"
+border_color = "#555555"
+keyhint_fg = "#999999"
 ```
 
 ### Policy interaction

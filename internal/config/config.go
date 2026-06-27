@@ -9,10 +9,28 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+type ThemeConfig struct {
+	TitleFG      string `toml:"title_fg"`
+	DangerFG     string `toml:"danger_fg"`
+	WarningFG    string `toml:"warning_fg"`
+	MutedFG      string `toml:"muted_fg"`
+	SelectedFG   string `toml:"selected_fg"`
+	UnselectedFG string `toml:"unselected_fg"`
+	PermanentFG  string `toml:"permanent_fg"`
+	PermanentBG  string `toml:"permanent_bg"`
+	TrashFG      string `toml:"trash_fg"`
+	TrashBG      string `toml:"trash_bg"`
+	TrashPathFG  string `toml:"trash_path_fg"`
+	BorderColor  string `toml:"border_color"`
+	KeyHintFG    string `toml:"keyhint_fg"`
+}
+
 type Config struct {
-	TrashDir   *string  `toml:"trash_dir"`
-	BypassList []string `toml:"bypass_list"`
-	DangerList []string `toml:"danger_list"`
+	TrashDir   *string      `toml:"trash_dir"`
+	BypassList []string     `toml:"bypass_list"`
+	DangerList []string     `toml:"danger_list"`
+	MaxAge     string       `toml:"max_age"`
+	Theme      *ThemeConfig `toml:"theme"`
 }
 
 func configFilePath() (string, error) {
@@ -77,6 +95,13 @@ func (c *Config) ResolvedTrashDir() (string, error) {
 	}
 
 	return filepath.Join(dataHome, "Trash"), nil
+}
+
+func (c *Config) DefaultMaxAge() string {
+	if c.MaxAge != "" {
+		return c.MaxAge
+	}
+	return ""
 }
 
 func IndexDir() (string, error) {

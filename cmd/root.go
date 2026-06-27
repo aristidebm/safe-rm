@@ -6,6 +6,7 @@ import (
 
 	"example.com/safe-rm/internal/config"
 	"example.com/safe-rm/internal/log"
+	"example.com/safe-rm/internal/tui"
 
 	"github.com/spf13/cobra"
 )
@@ -38,6 +39,12 @@ Trash specification and supports glob-based policies.`,
 			return fmt.Errorf("config: %w", err)
 		}
 
+		initTheme(cfg)
+
+		if trashDir, err := cfg.ResolvedTrashDir(); err == nil {
+			tui.SetTrashPath(trashDir)
+		}
+
 		return nil
 	},
 	RunE: rmRunE,
@@ -61,4 +68,53 @@ func init() {
 	rootCmd.AddCommand(restoreCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(emptyCmd)
+	rootCmd.AddCommand(pruneCmd)
+}
+
+func initTheme(cfg *config.Config) {
+	if cfg.Theme == nil {
+		return
+	}
+
+	t := tui.DefaultTheme()
+	if v := cfg.Theme.TitleFG; v != "" {
+		t.Colors.TitleFG = v
+	}
+	if v := cfg.Theme.DangerFG; v != "" {
+		t.Colors.DangerFG = v
+	}
+	if v := cfg.Theme.WarningFG; v != "" {
+		t.Colors.WarningFG = v
+	}
+	if v := cfg.Theme.MutedFG; v != "" {
+		t.Colors.MutedFG = v
+	}
+	if v := cfg.Theme.SelectedFG; v != "" {
+		t.Colors.SelectedFG = v
+	}
+	if v := cfg.Theme.UnselectedFG; v != "" {
+		t.Colors.UnselectedFG = v
+	}
+	if v := cfg.Theme.PermanentFG; v != "" {
+		t.Colors.PermanentFG = v
+	}
+	if v := cfg.Theme.PermanentBG; v != "" {
+		t.Colors.PermanentBG = v
+	}
+	if v := cfg.Theme.TrashFG; v != "" {
+		t.Colors.TrashFG = v
+	}
+	if v := cfg.Theme.TrashBG; v != "" {
+		t.Colors.TrashBG = v
+	}
+	if v := cfg.Theme.TrashPathFG; v != "" {
+		t.Colors.TrashPathFG = v
+	}
+	if v := cfg.Theme.BorderColor; v != "" {
+		t.Colors.BorderColor = v
+	}
+	if v := cfg.Theme.KeyHintFG; v != "" {
+		t.Colors.KeyHintFG = v
+	}
+	tui.SetTheme(t)
 }

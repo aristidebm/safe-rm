@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"example.com/safe-rm/internal/engine"
@@ -11,40 +10,32 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type ConfirmItem struct {
-	Path     string
-	IsDir    bool
-	Policy   engine.Policy
-	Expanded bool
-	Children []string
-	Selected bool
-	depth    int
-}
-
 type confirmModel struct {
-	items    []ConfirmItem
-	cursor   int
-	height   int
+	root      *engine.Node
+	nodes     []*engine.Node
+	cursor    int
+	height    int
 	confirmed bool
-	aborted  bool
+	aborted   bool
+	styles    *Styles
 }
 
-func RunConfirm(items []ConfirmItem) ([]ConfirmItem, bool) {
-	for i := range items {
-		items[i].depth = 0
-	}
+func RunConfirm(root *engine.Node) (*engine.Node, bool) {
+	root.Expand()
 
 	m := confirmModel{
-		items:  items,
+		root:   root,
+		nodes:  root.VisibleNodes(),
 		cursor: 0,
+		styles: DefaultStyles(),
 	}
 
 	p := tea.NewProgram(&m)
 	if _, err := p.Run(); err != nil {
-		return items, false
+		return root, false
 	}
 
-	return items, m.confirmed
+	return root, m.confirmed
 }
 
 func (m *confirmModel) Init() tea.Cmd {
@@ -74,47 +65,43 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "down", "j":
-			if m.cursor < len(m.visibleRows())-1 {
+			if m.cursor < len(m.nodes)-1 {
 				m.cursor++
 			}
 			return m, nil
 
 		case " ":
-			rows := m.visibleRows()
-			if m.cursor < len(rows) {
-				idx := rows[m.cursor]
-				m.items[idx].Selected = !m.items[idx].Selected
-				if m.items[idx].IsDir && m.items[idx].Expanded {
-					m.toggleChildren(idx, m.items[idx].Selected)
+			if m.cursor < len(m.nodes) {
+				node := m.nodes[m.cursor]
+				node.Selected = !node.Selected
+				if node.IsDir && node.Expanded {
+					toggleChildren(node, node.Selected)
 				}
 			}
 			return m, nil
 
 		case "enter":
-			rows := m.visibleRows()
-			if m.cursor < len(rows) {
-				idx := rows[m.cursor]
-				if m.items[idx].IsDir {
-					m.items[idx].Expanded = !m.items[idx].Expanded
-					if m.items[idx].Expanded && len(m.items[idx].Children) == 0 {
-						m.loadChildren(idx)
+			if m.cursor < len(m.nodes) {
+				node := m.nodes[m.cursor]
+				if node.IsDir {
+					if node.Expanded {
+						node.Collapse()
+					} else {
+						node.Expand()
 					}
+					m.nodes = m.root.VisibleNodes()
 				}
 			}
 			return m, nil
 
 		case "a":
-			for i := range m.items {
-				if m.items[i].depth == 0 {
-					m.items[i].Selected = true
-				}
-			}
+			selectAll(m.root, true)
+			m.nodes = m.root.VisibleNodes()
 			return m, nil
 
 		case "n":
-			for i := range m.items {
-				m.items[i].Selected = false
-			}
+			selectAll(m.root, false)
+			m.nodes = m.root.VisibleNodes()
 			return m, nil
 		}
 	}
@@ -122,63 +109,26 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *confirmModel) loadChildren(parentIdx int) {
-	entries, err := os.ReadDir(m.items[parentIdx].Path)
-	if err != nil {
-		return
-	}
-
-	insertIdx := parentIdx + 1
-	for _, entry := range entries {
-		child := ConfirmItem{
-			Path:     filepath.Join(m.items[parentIdx].Path, entry.Name()),
-			IsDir:    entry.IsDir(),
-			Policy:   m.items[parentIdx].Policy,
-			Selected: m.items[parentIdx].Selected,
-			depth:    m.items[parentIdx].depth + 1,
+func toggleChildren(parent *engine.Node, selected bool) {
+	for _, child := range parent.Children {
+		child.Selected = selected
+		if child.IsDir {
+			toggleChildren(child, selected)
 		}
-
-		m.items = append(m.items[:insertIdx], append([]ConfirmItem{child}, m.items[insertIdx:]...)...)
-		insertIdx++
-	}
-
-	m.items[parentIdx].Children = make([]string, len(entries))
-	for i, entry := range entries {
-		m.items[parentIdx].Children[i] = entry.Name()
 	}
 }
 
-func (m *confirmModel) toggleChildren(parentIdx int, selected bool) {
-	for i := parentIdx + 1; i < len(m.items); i++ {
-		if m.items[i].depth <= m.items[parentIdx].depth {
-			break
-		}
-		m.items[i].Selected = selected
+func selectAll(node *engine.Node, selected bool) {
+	node.Selected = selected
+	for _, child := range node.Children {
+		selectAll(child, selected)
 	}
-}
-
-func (m *confirmModel) visibleRows() []int {
-	var rows []int
-	for i, item := range m.items {
-		if item.depth == 0 {
-			rows = append(rows, i)
-			if item.Expanded {
-				for j := i + 1; j < len(m.items); j++ {
-					if m.items[j].depth <= item.depth {
-						break
-					}
-					rows = append(rows, j)
-				}
-			}
-		}
-	}
-	return rows
 }
 
 func (m *confirmModel) View() string {
 	var b strings.Builder
 
-	b.WriteString(StyleBorder.Render(m.viewContent()))
+	b.WriteString(m.styles.Border.Render(m.viewContent()))
 
 	return b.String()
 }
@@ -186,51 +136,57 @@ func (m *confirmModel) View() string {
 func (m *confirmModel) viewContent() string {
 	var b strings.Builder
 
-	b.WriteString(StyleTitle.Render("⚠  DANGER — Review files before deleting"))
+	b.WriteString(m.styles.Title.Render("DANGER — Review files before deleting"))
 	b.WriteString("\n\n")
 
-	rows := m.visibleRows()
 	selectedCount := 0
 	permCount := 0
 
-	for i, idx := range rows {
-		item := m.items[idx]
+	for i, node := range m.nodes {
 		cursor := "  "
 		if i == m.cursor {
-			cursor = "▸ "
+			cursor = "> "
 		}
 
 		checkbox := "[ ]"
-		if item.Selected {
-			checkbox = StyleSelected.Render("[✓]")
+		if node.Selected {
+			checkbox = m.styles.Selected.Render("[x]")
 			selectedCount++
 		}
 
-		indent := strings.Repeat("  ", item.depth)
+		indent := strings.Repeat("  ", node.Depth)
 		prefix := ""
-		if item.depth > 0 {
-			if i < len(rows)-1 && m.items[rows[i+1]].depth >= item.depth {
-				prefix = "├── "
+		if node.Depth > 0 {
+			isLast := false
+			if i < len(m.nodes)-1 && m.nodes[i+1].Depth <= node.Depth {
+				isLast = true
+			}
+			if isLast || i == len(m.nodes)-1 {
+				prefix = "\\-- "
 			} else {
-				prefix = "└── "
+				prefix = "|-- "
 			}
 		}
 
-		icon := "📄"
-		if item.IsDir {
-			icon = "📁"
+		icon := " "
+		if node.IsDir {
+			if node.Expanded {
+				icon = "v"
+			} else {
+				icon = ">"
+			}
 		}
 
 		badge := ""
-		switch item.Policy {
+		switch node.Policy {
 		case engine.PolicyDanger:
-			badge = StyleTrash.Render(" TRASH ")
+			badge = m.styles.Trash.Render(" TRASH ")
 		case engine.PolicyDangerPermanent:
-			badge = StylePermanent.Render(" PERMANENT ")
+			badge = m.styles.Permanent.Render(" PERMANENT ")
 			permCount++
 		}
 
-		path := item.Path
+		path := node.Path
 		home, _ := os.UserHomeDir()
 		if strings.HasPrefix(path, home) {
 			path = "~" + path[len(home):]
@@ -243,13 +199,15 @@ func (m *confirmModel) viewContent() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(StyleMuted.Render(fmt.Sprintf("%d selected · %d permanent · %d to trash",
+	b.WriteString(m.styles.Muted.Render(fmt.Sprintf("%d selected  %d permanent  %d to trash",
 		selectedCount, permCount, selectedCount-permCount)))
 	b.WriteString("\n")
 
-	b.WriteString(StyleKeyHint.Render("space: toggle  enter: expand dir  a: all  n: none"))
+	b.WriteString(m.styles.KeyHint.Render("space: toggle  enter: expand/collapse dir  a: all  n: none"))
 	b.WriteString("\n")
-	b.WriteString(StyleKeyHint.Render("q/esc: abort   x: confirm deletion"))
+	b.WriteString(m.styles.KeyHint.Render("q/esc: abort   x: confirm deletion"))
+	b.WriteString("\n")
+	b.WriteString(m.styles.TrashPath.Render("trash: " + TrashPath()))
 
 	return b.String()
 }

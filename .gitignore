@@ -27,4 +27,7 @@ go.work
 # Build output
 build/
 
+# direnv output
+.direnv/
+
 # End of https://www.toptal.com/developers/gitignore/api/go

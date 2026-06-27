@@ -292,6 +292,9 @@ func (m *restoreModel) viewContent() string {
 		b.WriteString(StyleKeyHint.Render("r: restore selected  d: delete selected  q: abort"))
 	}
 
+	b.WriteString("\n")
+	b.WriteString(StyleMuted.Render("trash: " + TrashPath()))
+
 	return b.String()
 }
 

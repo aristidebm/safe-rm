@@ -12,11 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type deleteTarget struct {
-	Path   string
-	Policy engine.Policy
-}
-
 func rmRunE(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		cmd.Usage()
@@ -31,7 +26,8 @@ func rmRunE(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	var targets []deleteTarget
+	var directTargets []engine.DeleteTarget
+	var dangerTargets []*engine.Node
 
 	for _, arg := range args {
 		abs, err := filepath.Abs(arg)
@@ -70,66 +66,95 @@ func rmRunE(cmd *cobra.Command, args []string) error {
 			policy = engine.PolicyDanger
 		}
 
-		targets = append(targets, deleteTarget{Path: abs, Policy: policy})
-	}
-
-	var directTargets []deleteTarget
-	var dangerTargets []deleteTarget
-
-	for _, t := range targets {
-		switch t.Policy {
+		switch policy {
 		case engine.PolicyDanger, engine.PolicyDangerPermanent:
-			dangerTargets = append(dangerTargets, t)
+			var root *engine.Node
+			if fi.IsDir() && recursive {
+				root, err = engine.BuildTreeRecursive(abs, cfg)
+			} else {
+				root, err = engine.BuildTree(abs, cfg)
+			}
+			if err != nil {
+				return err
+			}
+			if root == nil {
+				continue
+			}
+			root.Selected = true
+			dangerTargets = append(dangerTargets, root)
 		default:
-			directTargets = append(directTargets, t)
+			directTargets = append(directTargets, engine.DeleteTarget{Path: abs, Policy: policy})
 		}
 	}
 
 	if len(dangerTargets) > 0 {
 		log.Infof("%d targets require TUI confirmation", len(dangerTargets))
 
-		items := make([]tui.ConfirmItem, len(dangerTargets))
-		for i, t := range dangerTargets {
-			fi, err := os.Stat(t.Path)
-			isDir := err == nil && fi.IsDir()
-			items[i] = tui.ConfirmItem{
-				Path:     t.Path,
-				IsDir:    isDir,
-				Policy:   t.Policy,
-				Selected: true,
-			}
-		}
-
-		confirmedItems, confirmed := tui.RunConfirm(items)
-		if !confirmed {
-			log.Infof("TUI confirmation aborted by user")
-			return nil
-		}
-
-		for _, item := range confirmedItems {
-			if !item.Selected {
-				continue
+		for _, root := range dangerTargets {
+			confirmedRoot, confirmed := tui.RunConfirm(root)
+			if !confirmed {
+				log.Infof("TUI confirmation aborted by user")
+				return nil
 			}
 
-			var err error
-			switch item.Policy {
-			case engine.PolicyDangerPermanent:
-				err = engine.PermanentDelete(item.Path)
-			default:
-				err = engine.SoftDelete(item.Path, cfg, false)
-			}
+			processed := make(map[string]bool)
 
-			if err != nil {
-				log.Errorf("failed to delete %s: %v", item.Path, err)
-				return err
-			}
+			for _, node := range confirmedRoot.VisibleNodes() {
+				if !node.Selected || node == confirmedRoot {
+					continue
+				}
 
-			if verbose {
-				switch item.Policy {
+				if processed[node.Path] {
+					continue
+				}
+
+				if node.IsDir && len(node.Children) > 0 {
+					continue
+				}
+
+				var err error
+				switch node.Policy {
 				case engine.PolicyDangerPermanent:
-					fmt.Fprintf(os.Stderr, "safe-rm: permanently deleted %s\n", item.Path)
+					err = engine.PermanentDelete(node.Path)
 				default:
-					fmt.Fprintf(os.Stderr, "safe-rm: trashed %s\n", item.Path)
+					err = engine.SoftDelete(node.Path, cfg, false)
+				}
+
+				if err != nil {
+					log.Errorf("failed to delete %s: %v", node.Path, err)
+					return err
+				}
+
+				processed[node.Path] = true
+
+				if verbose {
+					switch node.Policy {
+					case engine.PolicyDangerPermanent:
+						fmt.Fprintf(os.Stderr, "safe-rm: permanently deleted %s\n", node.Path)
+					default:
+						fmt.Fprintf(os.Stderr, "safe-rm: trashed %s\n", node.Path)
+					}
+				}
+			}
+
+			for _, node := range confirmedRoot.VisibleNodes() {
+				if !node.Selected || node == confirmedRoot {
+					continue
+				}
+				if !node.IsDir || len(node.Children) == 0 {
+					continue
+				}
+				allChildrenProcessed := true
+				for _, child := range node.Children {
+					if !processed[child.Path] {
+						allChildrenProcessed = false
+						break
+					}
+				}
+				if allChildrenProcessed {
+					if err := os.RemoveAll(node.Path); err != nil {
+						log.Warnf("failed to remove empty directory %s: %v", node.Path, err)
+					}
 				}
 			}
 		}

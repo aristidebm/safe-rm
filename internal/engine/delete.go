@@ -66,7 +66,7 @@ func routePath(path string, cfg *config.Config, recursive bool) (Policy, error) 
 	if !isDanger && !isBypass && recursive {
 		fi, err := os.Stat(path)
 		if err == nil && fi.IsDir() {
-			childDanger, childBypass, err := scanDir(path, cfg)
+			childDanger, childBypass, err := treeHasPolicy(path, cfg)
 			if err != nil {
 				return PolicySoftDelete, err
 			}
@@ -91,56 +91,6 @@ func routePath(path string, cfg *config.Config, recursive bool) (Policy, error) 
 	}
 }
 
-func scanDir(dir string, cfg *config.Config) (hasDanger bool, hasBypass bool, err error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false, false, err
-	}
-
-	for _, entry := range entries {
-		childPath := filepath.Join(dir, entry.Name())
-
-		if len(cfg.DangerList) > 0 {
-			match, err := MatchesAny(childPath, cfg.DangerList)
-			if err != nil {
-				return false, false, err
-			}
-			if match {
-				hasDanger = true
-			}
-		}
-
-		if len(cfg.BypassList) > 0 {
-			match, err := MatchesAny(childPath, cfg.BypassList)
-			if err != nil {
-				return false, false, err
-			}
-			if match {
-				hasBypass = true
-			}
-		}
-
-		if entry.IsDir() {
-			cd, cb, err := scanDir(childPath, cfg)
-			if err != nil {
-				return false, false, err
-			}
-			if cd {
-				hasDanger = true
-			}
-			if cb {
-				hasBypass = true
-			}
-		}
-
-		if hasDanger && hasBypass {
-			return true, true, nil
-		}
-	}
-
-	return hasDanger, hasBypass, nil
-}
-
 func SoftDelete(path string, cfg *config.Config, freeDesktop bool) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -156,6 +106,48 @@ func SoftDelete(path string, cfg *config.Config, freeDesktop bool) error {
 		return err
 	}
 
+	if fi.IsDir() {
+		return softDeleteDir(abs, cfg, freeDesktop)
+	}
+	return softDeleteFile(abs, cfg, freeDesktop)
+}
+
+func softDeleteDir(dir string, cfg *config.Config, freeDesktop bool) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	if len(entries) == 0 {
+		return softDeleteFile(dir, cfg, freeDesktop)
+	}
+
+	for _, entry := range entries {
+		childPath := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if err := softDeleteDir(childPath, cfg, freeDesktop); err != nil {
+				return err
+			}
+		} else {
+			if err := softDeleteFile(childPath, cfg, freeDesktop); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		log.Warnf("failed to remove emptied directory %s: %v", dir, err)
+	}
+
+	return nil
+}
+
+func softDeleteFile(path string, cfg *config.Config, freeDesktop bool) error {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+
 	trashDir, err := cfg.ResolvedTrashDir()
 	if err != nil {
 		return err
@@ -166,7 +158,7 @@ func SoftDelete(path string, cfg *config.Config, freeDesktop bool) error {
 		return err
 	}
 
-	entry, err := NewEntry(abs, fi.IsDir())
+	entry, err := NewEntry(abs, false)
 	if err != nil {
 		return err
 	}
@@ -203,7 +195,7 @@ func SoftDelete(path string, cfg *config.Config, freeDesktop bool) error {
 		log.Errorf("failed to append trash entry: %v", err)
 	}
 
-	log.Infof("soft-deleted %s -> %s (policy=%s)", abs, dst, "soft-delete")
+	log.Infof("soft-deleted %s -> %s", abs, dst)
 	return nil
 }
 
