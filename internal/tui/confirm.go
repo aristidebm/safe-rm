@@ -7,6 +7,7 @@ import (
 
 	"example.com/safe-rm/internal/engine"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -18,19 +19,32 @@ type confirmModel struct {
 	confirmed bool
 	aborted   bool
 	styles    *Styles
+	viewport  viewport.Model
 }
 
 func RunConfirm(root *engine.Node) (*engine.Node, bool) {
 	root.Expand()
 
+	vp := viewport.New(80, 10)
+	vp.KeyMap.Up.SetEnabled(false)
+	vp.KeyMap.Down.SetEnabled(false)
+	vp.KeyMap.PageUp.SetEnabled(false)
+	vp.KeyMap.PageDown.SetEnabled(false)
+	vp.KeyMap.HalfPageUp.SetEnabled(false)
+	vp.KeyMap.HalfPageDown.SetEnabled(false)
+	vp.MouseWheelEnabled = true
+
 	m := confirmModel{
-		root:   root,
-		nodes:  root.VisibleNodes(),
-		cursor: 0,
-		styles: DefaultStyles(),
+		root:     root,
+		nodes:    root.VisibleNodes(),
+		cursor:   0,
+		styles:   DefaultStyles(),
+		viewport: vp,
 	}
 
-	p := tea.NewProgram(&m)
+	m.viewport.SetContent(m.buildViewportContent())
+
+	p := tea.NewProgram(&m, tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return root, false
 	}
@@ -46,6 +60,15 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.height = msg.Height
+		m.viewport.Width = msg.Width - 6
+
+		vpHeight := msg.Height - 4 - 2 - 5
+		if vpHeight < 1 {
+			vpHeight = 1
+		}
+		m.viewport.Height = vpHeight
+
+		m.ensureCursorVisible()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -61,13 +84,45 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.refreshContent()
 			}
 			return m, nil
 
 		case "down", "j":
 			if m.cursor < len(m.nodes)-1 {
 				m.cursor++
+				m.refreshContent()
 			}
+			return m, nil
+
+		case "pgup":
+			m.viewport.PageUp()
+			m.cursor -= m.viewport.Height
+			if m.cursor < 0 {
+				m.cursor = 0
+			}
+			m.refreshContent()
+			return m, nil
+
+		case "pgdown":
+			m.viewport.PageDown()
+			m.cursor += m.viewport.Height
+			if m.cursor >= len(m.nodes) {
+				m.cursor = len(m.nodes) - 1
+			}
+			m.refreshContent()
+			return m, nil
+
+		case "home":
+			m.cursor = 0
+			m.viewport.GotoTop()
+			m.refreshContent()
+			return m, nil
+
+		case "end":
+			m.cursor = len(m.nodes) - 1
+			m.viewport.GotoBottom()
+			m.refreshContent()
 			return m, nil
 
 		case " ":
@@ -78,6 +133,7 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					toggleChildren(node, node.Selected)
 				}
 			}
+			m.refreshContent()
 			return m, nil
 
 		case "enter":
@@ -90,6 +146,8 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						node.Expand()
 					}
 					m.nodes = m.root.VisibleNodes()
+					m.clampCursor()
+					m.refreshContent()
 				}
 			}
 			return m, nil
@@ -97,51 +155,59 @@ func (m *confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			selectAll(m.root, true)
 			m.nodes = m.root.VisibleNodes()
+			m.clampCursor()
+			m.refreshContent()
 			return m, nil
 
 		case "n":
 			selectAll(m.root, false)
 			m.nodes = m.root.VisibleNodes()
+			m.clampCursor()
+			m.refreshContent()
 			return m, nil
 		}
+
+	case tea.MouseMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
 
 	return m, nil
 }
 
-func toggleChildren(parent *engine.Node, selected bool) {
-	for _, child := range parent.Children {
-		child.Selected = selected
-		if child.IsDir {
-			toggleChildren(child, selected)
-		}
+func (m *confirmModel) refreshContent() {
+	m.viewport.SetContent(m.buildViewportContent())
+	m.ensureCursorVisible()
+}
+
+func (m *confirmModel) clampCursor() {
+	if m.cursor >= len(m.nodes) {
+		m.cursor = len(m.nodes) - 1
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
 	}
 }
 
-func selectAll(node *engine.Node, selected bool) {
-	node.Selected = selected
-	for _, child := range node.Children {
-		selectAll(child, selected)
+func (m *confirmModel) ensureCursorVisible() {
+	if m.viewport.Height <= 0 {
+		return
+	}
+	cursorLine := m.cursor
+	if cursorLine < m.viewport.YOffset {
+		m.viewport.YOffset = cursorLine
+	} else if cursorLine >= m.viewport.YOffset+m.viewport.Height {
+		m.viewport.YOffset = cursorLine - m.viewport.Height + 1
 	}
 }
 
-func (m *confirmModel) View() string {
+func (m *confirmModel) buildViewportContent() string {
+	if len(m.nodes) == 0 {
+		return ""
+	}
+
 	var b strings.Builder
-
-	b.WriteString(m.styles.Border.Render(m.viewContent()))
-
-	return b.String()
-}
-
-func (m *confirmModel) viewContent() string {
-	var b strings.Builder
-
-	b.WriteString(m.styles.Title.Render("DANGER — Review files before deleting"))
-	b.WriteString("\n\n")
-
-	selectedCount := 0
-	permCount := 0
-
 	for i, node := range m.nodes {
 		cursor := "  "
 		if i == m.cursor {
@@ -151,7 +217,6 @@ func (m *confirmModel) viewContent() string {
 		checkbox := "[ ]"
 		if node.Selected {
 			checkbox = m.styles.Selected.Render("[x]")
-			selectedCount++
 		}
 
 		indent := strings.Repeat("  ", node.Depth)
@@ -180,10 +245,9 @@ func (m *confirmModel) viewContent() string {
 		badge := ""
 		switch node.Policy {
 		case engine.PolicyDanger:
-			badge = m.styles.Trash.Render(" TRASH ")
+			badge = " " + m.styles.Trash.Render(" TRASH ")
 		case engine.PolicyDangerPermanent:
-			badge = m.styles.Permanent.Render(" PERMANENT ")
-			permCount++
+			badge = " " + m.styles.Permanent.Render(" PERMANENT ")
 		}
 
 		path := node.Path
@@ -192,13 +256,38 @@ func (m *confirmModel) viewContent() string {
 			path = "~" + path[len(home):]
 		}
 
-		line := fmt.Sprintf("%s%s%s%s %s %s %s\n",
+		line := fmt.Sprintf("%s%s%s%s %s %s%s",
 			cursor, indent, prefix, checkbox, icon, path, badge)
 
 		b.WriteString(line)
+		b.WriteString("\n")
 	}
+	return b.String()
+}
 
+func (m *confirmModel) View() string {
+	return m.styles.Border.Render(m.viewWithLayout())
+}
+
+func (m *confirmModel) viewWithLayout() string {
+	var b strings.Builder
+
+	b.WriteString(m.styles.Title.Render("DANGER — Review files before deleting"))
+	b.WriteString("\n\n")
+
+	b.WriteString(m.viewport.View())
 	b.WriteString("\n")
+
+	selectedCount := 0
+	permCount := 0
+	for _, node := range m.nodes {
+		if node.Selected {
+			selectedCount++
+		}
+		if node.Policy == engine.PolicyDangerPermanent {
+			permCount++
+		}
+	}
 	b.WriteString(m.styles.Muted.Render(fmt.Sprintf("%d selected  %d permanent  %d to trash",
 		selectedCount, permCount, selectedCount-permCount)))
 	b.WriteString("\n")
@@ -210,4 +299,20 @@ func (m *confirmModel) viewContent() string {
 	b.WriteString(m.styles.TrashPath.Render("trash: " + TrashPath()))
 
 	return b.String()
+}
+
+func toggleChildren(parent *engine.Node, selected bool) {
+	for _, child := range parent.Children {
+		child.Selected = selected
+		if child.IsDir {
+			toggleChildren(child, selected)
+		}
+	}
+}
+
+func selectAll(node *engine.Node, selected bool) {
+	node.Selected = selected
+	for _, child := range node.Children {
+		selectAll(child, selected)
+	}
 }

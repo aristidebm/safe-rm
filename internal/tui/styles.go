@@ -96,7 +96,7 @@ var (
 			Foreground(lipgloss.AdaptiveColor{Light: "#008800", Dark: "#44ff44"})
 
 	StyleUnselected = lipgloss.NewStyle().
-			 Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#555555"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#888888", Dark: "#555555"})
 
 	StylePermanent = lipgloss.NewStyle().
 			Bold(true).

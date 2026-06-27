@@ -196,5 +196,3 @@ func writeJSONL(path string, entries []*TrashEntry) error {
 
 	return nil
 }
-
-

@@ -27,7 +27,7 @@ var rootCmd = &cobra.Command{
 	Long: `safe-rm is a rm replacement that moves files to trash
 instead of permanently deleting them. It follows the FreeDesktop
 Trash specification and supports glob-based policies.`,
-	Args:              cobra.ArbitraryArgs,
+	Args: cobra.ArbitraryArgs,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := log.Init(debugMode); err != nil {
 			return fmt.Errorf("log init: %w", err)
