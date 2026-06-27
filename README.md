@@ -32,7 +32,7 @@ Create `~/.config/safe-rm/config.toml` (or set `$SAFE_RM_CONFIG`):
 # When set, .trashinfo files are NOT written (non-FreeDesktop mode)
 trash_dir = "/path/to/custom/trash"
 
-# Default age threshold for `safe-rm prune` (optional)
+# Default age threshold for `safe-rm empty --older-than` (optional)
 max_age = "30d"
 
 # Patterns that bypass the trash entirely (permanent delete)
@@ -120,6 +120,7 @@ safe-rm empty                             # prompt before removing all
 safe-rm empty -f                          # skip confirmation
 safe-rm empty --older-than 30d            # only entries older than 30 days
 safe-rm empty --older-than 2w             # 2 weeks
+safe-rm empty --dry-run                   # show what would be removed
 ```
 
 ### TUI key bindings

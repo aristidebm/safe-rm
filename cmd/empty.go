@@ -17,6 +17,7 @@ import (
 
 var olderThan string
 var emptyForce bool
+var emptyDryRun bool
 
 var emptyCmd = &cobra.Command{
 	Use:   "empty",
@@ -37,11 +38,16 @@ var emptyCmd = &cobra.Command{
 			return err
 		}
 
+		age := olderThan
+		if age == "" {
+			age = cfg.DefaultMaxAge()
+		}
+
 		var cutoff time.Time
-		if olderThan != "" {
-			d, err := parseDuration(olderThan)
+		if age != "" {
+			d, err := parseDuration(age)
 			if err != nil {
-				return fmt.Errorf("invalid --older-than: %w", err)
+				return fmt.Errorf("invalid --older-than %q: %w", age, err)
 			}
 			cutoff = time.Now().UTC().Add(-d)
 		}
@@ -58,16 +64,31 @@ var emptyCmd = &cobra.Command{
 		}
 
 		if len(toRemove) == 0 {
-			fmt.Fprintf(os.Stderr, "safe-rm: trash is already empty\n")
+			if cutoff.IsZero() {
+				fmt.Fprintf(os.Stderr, "safe-rm: trash is already empty\n")
+			} else {
+				fmt.Fprintf(os.Stderr, "safe-rm: no entries older than %s\n", age)
+			}
+			return nil
+		}
+
+		var totalSize int64
+		for _, e := range toRemove {
+			totalSize += e.Size
+		}
+
+		if cutoff.IsZero() {
+			fmt.Fprintf(os.Stderr, "safe-rm: about to remove %d entries (%s)\n", len(toRemove), formatSize(totalSize))
+		} else {
+			fmt.Fprintf(os.Stderr, "safe-rm: %d entries (%s) older than %s\n", len(toRemove), formatSize(totalSize), age)
+		}
+
+		if emptyDryRun {
+			fmt.Fprintf(os.Stderr, "safe-rm: dry-run, nothing removed\n")
 			return nil
 		}
 
 		if !emptyForce {
-			var totalSize int64
-			for _, e := range toRemove {
-				totalSize += e.Size
-			}
-			fmt.Fprintf(os.Stderr, "safe-rm: about to remove %d entries (%s)\n", len(toRemove), formatSize(totalSize))
 			fmt.Fprintf(os.Stderr, "Proceed? [y/N] ")
 
 			var response string
@@ -101,8 +122,9 @@ var emptyCmd = &cobra.Command{
 }
 
 func init() {
-	emptyCmd.Flags().StringVar(&olderThan, "older-than", "", "only delete entries older than duration (e.g. 30d, 2w, 1h)")
+	emptyCmd.Flags().StringVar(&olderThan, "older-than", "", "only delete entries older than duration (e.g. 30d, 2w, 1h); defaults to config max_age")
 	emptyCmd.Flags().BoolVarP(&emptyForce, "force", "f", false, "skip confirmation prompt")
+	emptyCmd.Flags().BoolVar(&emptyDryRun, "dry-run", false, "show what would be removed without removing")
 }
 
 func parseDuration(s string) (time.Duration, error) {

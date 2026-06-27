@@ -68,7 +68,6 @@ func init() {
 	rootCmd.AddCommand(restoreCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(emptyCmd)
-	rootCmd.AddCommand(pruneCmd)
 }
 
 func initTheme(cfg *config.Config) {
