@@ -5,6 +5,9 @@ deleting them. Follows the [FreeDesktop Trash specification][fdo-trash] by
 default, supports glob-based policies, and provides a TUI for dangerous
 operations and restoration.
 
+> **Disclaimer**: This project is entirely vibe-coded and provided as-is with
+> no warranty of any kind. Use at your own risk.
+
 [fdo-trash]: https://specifications.freedesktop.org/trash-spec/trashspec-latest.html
 
 ## Installation
