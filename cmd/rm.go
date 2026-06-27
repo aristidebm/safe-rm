@@ -56,7 +56,12 @@ func rmRunE(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("cannot remove %q: is a directory", abs)
 		}
 
-		policy, err := engine.Route(abs, cfg)
+		var policy engine.Policy
+		if fi.IsDir() && recursive {
+			policy, err = engine.RouteRecursive(abs, cfg)
+		} else {
+			policy, err = engine.Route(abs, cfg)
+		}
 		if err != nil {
 			return err
 		}

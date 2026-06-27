@@ -36,6 +36,14 @@ func (p Policy) String() string {
 }
 
 func Route(path string, cfg *config.Config) (Policy, error) {
+	return routePath(path, cfg, false)
+}
+
+func RouteRecursive(path string, cfg *config.Config) (Policy, error) {
+	return routePath(path, cfg, true)
+}
+
+func routePath(path string, cfg *config.Config, recursive bool) (Policy, error) {
 	isDanger := false
 	isBypass := false
 
@@ -55,6 +63,22 @@ func Route(path string, cfg *config.Config) (Policy, error) {
 		isBypass = match
 	}
 
+	if !isDanger && !isBypass && recursive {
+		fi, err := os.Stat(path)
+		if err == nil && fi.IsDir() {
+			childDanger, childBypass, err := scanDir(path, cfg)
+			if err != nil {
+				return PolicySoftDelete, err
+			}
+			if childDanger {
+				isDanger = true
+			}
+			if childBypass {
+				isBypass = true
+			}
+		}
+	}
+
 	switch {
 	case isDanger && isBypass:
 		return PolicyDangerPermanent, nil
@@ -65,6 +89,56 @@ func Route(path string, cfg *config.Config) (Policy, error) {
 	default:
 		return PolicySoftDelete, nil
 	}
+}
+
+func scanDir(dir string, cfg *config.Config) (hasDanger bool, hasBypass bool, err error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false, false, err
+	}
+
+	for _, entry := range entries {
+		childPath := filepath.Join(dir, entry.Name())
+
+		if len(cfg.DangerList) > 0 {
+			match, err := MatchesAny(childPath, cfg.DangerList)
+			if err != nil {
+				return false, false, err
+			}
+			if match {
+				hasDanger = true
+			}
+		}
+
+		if len(cfg.BypassList) > 0 {
+			match, err := MatchesAny(childPath, cfg.BypassList)
+			if err != nil {
+				return false, false, err
+			}
+			if match {
+				hasBypass = true
+			}
+		}
+
+		if entry.IsDir() {
+			cd, cb, err := scanDir(childPath, cfg)
+			if err != nil {
+				return false, false, err
+			}
+			if cd {
+				hasDanger = true
+			}
+			if cb {
+				hasBypass = true
+			}
+		}
+
+		if hasDanger && hasBypass {
+			return true, true, nil
+		}
+	}
+
+	return hasDanger, hasBypass, nil
 }
 
 func SoftDelete(path string, cfg *config.Config, freeDesktop bool) error {

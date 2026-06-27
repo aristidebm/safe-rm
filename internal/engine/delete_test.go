@@ -46,6 +46,78 @@ func TestPolicyRoutingDanger(t *testing.T) {
 	}
 }
 
+func TestRouteRecursiveDirWithDangerFile(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "safe.md"), []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "secret.txt"), []byte("danger"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		DangerList: []string{"*.txt"},
+	}
+
+	policy, err := RouteRecursive(dir, cfg)
+	if err != nil {
+		t.Fatalf("RouteRecursive() returned error: %v", err)
+	}
+	if policy != PolicyDanger {
+		t.Fatalf("expected PolicyDanger for dir containing *.txt, got %v", policy)
+	}
+}
+
+func TestRouteRecursiveDirWithBypassFile(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "data.tmp"), []byte("temp"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		BypassList: []string{"*.tmp"},
+	}
+
+	policy, err := RouteRecursive(dir, cfg)
+	if err != nil {
+		t.Fatalf("RouteRecursive() returned error: %v", err)
+	}
+	if policy != PolicyPermanent {
+		t.Fatalf("expected PolicyPermanent for dir containing *.tmp, got %v", policy)
+	}
+}
+
+func TestRouteRecursiveDirDangerAndBypass(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "secret.txt"), []byte("danger"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data.tmp"), []byte("temp"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		DangerList: []string{"*.txt"},
+		BypassList: []string{"*.tmp"},
+	}
+
+	policy, err := RouteRecursive(dir, cfg)
+	if err != nil {
+		t.Fatalf("RouteRecursive() returned error: %v", err)
+	}
+	if policy != PolicyDangerPermanent {
+		t.Fatalf("expected PolicyDangerPermanent for dir with both danger and bypass, got %v", policy)
+	}
+}
+
 func TestPolicyRoutingDangerPermanent(t *testing.T) {
 	cfg := &config.Config{
 		DangerList: []string{"*.secret"},
